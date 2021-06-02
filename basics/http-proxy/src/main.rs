@@ -52,13 +52,14 @@ async fn forward(
         .execute(forwarded_req.body(stream).build().unwrap())
         .await;
     match res {
-        Ok(_) => Ok(HttpResponse::Ok().body("Proxied")),
+        Ok(response) => Ok(HttpResponse::Ok().body(response.text().await.unwrap())),
         Err(_) => Ok(HttpResponse::InternalServerError().body("Not proxied")),
     }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    std::env::set_var("RUST_LOG", "INFO");
     env_logger::init();
 
     let matches = clap::App::new("HTTP Proxy")
