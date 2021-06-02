@@ -2744,6 +2744,11 @@ version = "2.0.0"
 dependencies = [
  "actix-web",
  "clap",
+ "env_logger 0.8.2",
+ "futures",
+ "log",
+ "reqwest",
+ "tokio",
  "url",
 ]
 
