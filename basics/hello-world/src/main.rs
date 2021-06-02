@@ -1,21 +1,33 @@
 use actix_web::{middleware, web, App, HttpRequest, HttpServer};
+use futures::stream::StreamExt;
 
-async fn index(req: HttpRequest) -> &'static str {
-    println!("REQ: {:?}", req);
-    "Hello world!"
+async fn index(_req: HttpRequest, mut payload: web::Payload) -> String {
+    // Commenting out this loop results in the proxy succeeding
+    let mut msg_count = 0;
+    loop {
+        log::info!("Waiting for next message");
+        if payload.next().await.is_some() {
+            log::info!("Received message");
+            msg_count += 1;
+        } else {
+            break;
+        }
+    }
+
+    log::info!("Received entire payload");
+    msg_count.to_string()
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_web=info");
+    std::env::set_var("RUST_LOG", "INFO");
     env_logger::init();
 
     HttpServer::new(|| {
         App::new()
             // enable logger
             .wrap(middleware::Logger::default())
-            .service(web::resource("/index.html").to(|| async { "Hello world!" }))
-            .service(web::resource("/").to(index))
+            .default_service(web::route().to(index))
     })
     .bind("127.0.0.1:8080")?
     .run()

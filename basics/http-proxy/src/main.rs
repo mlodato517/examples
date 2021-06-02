@@ -1,13 +1,16 @@
 use std::net::ToSocketAddrs;
 
-use actix_web::client::Client;
 use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use clap::{value_t, Arg};
+use futures::stream::StreamExt;
+use reqwest::Client;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use url::Url;
 
 async fn forward(
     req: HttpRequest,
-    body: web::Bytes,
+    mut payload: web::Payload,
     url: web::Data<Url>,
     client: web::Data<Client>,
 ) -> Result<HttpResponse, Error> {
@@ -17,31 +20,48 @@ async fn forward(
 
     // TODO: This forwarded implementation is incomplete as it only handles the inofficial
     // X-Forwarded-For header but not the official Forwarded one.
-    let forwarded_req = client
-        .request_from(new_url.as_str(), req.head())
-        .no_decompress();
+    let forwarded_req = client.request(req.method().clone(), new_url);
+
     let forwarded_req = if let Some(addr) = req.head().peer_addr {
         forwarded_req.header("x-forwarded-for", format!("{}", addr.ip()))
     } else {
         forwarded_req
     };
 
-    let mut res = forwarded_req.send_body(body).await.map_err(Error::from)?;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let reqwest_stream = UnboundedReceiverStream::new(rx).map(|(msg_count, msg)| {
+        log::info!("Received message {}", msg_count);
+        msg
+    });
 
-    let mut client_resp = HttpResponse::build(res.status());
-    // Remove `Connection` as per
-    // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection#Directives
-    for (header_name, header_value) in
-        res.headers().iter().filter(|(h, _)| *h != "connection")
-    {
-        client_resp.header(header_name.clone(), header_value.clone());
+    let mut msg_count = 0;
+    loop {
+        log::info!("Waiting for next message");
+        if let Some(msg) = payload.next().await {
+            log::info!("Sending msg {}", msg_count);
+            let _ = tx.send((msg_count, msg));
+        } else {
+            break;
+        }
+        msg_count += 1;
     }
+    log::info!("Done sending message");
 
-    Ok(client_resp.body(res.body().await?))
+    let stream = reqwest::Body::wrap_stream(reqwest_stream);
+    let res = client
+        .execute(forwarded_req.body(stream).build().unwrap())
+        .await;
+    match res {
+        Ok(response) => Ok(HttpResponse::Ok().body(response.text().await.unwrap())),
+        Err(_) => Ok(HttpResponse::InternalServerError().body("Not proxied")),
+    }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    std::env::set_var("RUST_LOG", "INFO");
+    env_logger::init();
+
     let matches = clap::App::new("HTTP Proxy")
         .arg(
             Arg::with_name("listen_addr")
@@ -92,7 +112,12 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .data(Client::new())
+            .data(
+                Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap(),
+            )
             .data(forward_url.clone())
             .wrap(middleware::Logger::default())
             .default_service(web::route().to(forward))
