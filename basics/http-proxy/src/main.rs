@@ -5,6 +5,7 @@ use clap::{value_t, Arg};
 use futures::stream::StreamExt;
 use reqwest::Client;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use url::Url;
 
 async fn forward(
@@ -28,7 +29,7 @@ async fn forward(
     };
 
     let (tx, rx) = mpsc::unbounded_channel();
-    let reqwest_stream = rx.map(|(msg_count, msg)| {
+    let reqwest_stream = UnboundedReceiverStream::new(rx).map(|(msg_count, msg)| {
         log::info!("Received message {}", msg_count);
         msg
     });

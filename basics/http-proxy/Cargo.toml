@@ -5,11 +5,12 @@ authors = ["Nikolay Kim <fafhrd91@gmail.com>", "Rotem Yaari <vmalloc@gmail.com>"
 edition = "2018"
 
 [dependencies]
-actix-web = { version = "3", features = ["openssl"] }
+actix-web = { version = "4.0.0-beta.6", features = ["openssl"] }
 clap = "2.33"
 env_logger = "0.8"
 futures = "0.3"
 log = "0.4"
-reqwest = { version = "0.10", features = ["stream"] }
-tokio = "0.2.23"
+reqwest = { version = "0.11", features = ["stream"] }
+tokio = "1"
+tokio-stream = "0.1.6"
 url = "2.0"
